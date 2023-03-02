@@ -21,7 +21,7 @@ def assert_shape(in_file):
     return start_shape
 
 
-def load_tensor(in_file, year_list=None, shape=None):
+def load_multiband_tensor(in_file, year_list=None, shape=None):
     
     if shape is None:
         shape = assert_shape(in_file)
@@ -34,9 +34,17 @@ def load_tensor(in_file, year_list=None, shape=None):
             for file in files:
                 if year in file:
                     with rasterio.open(file) as src:
-                        rst = src.read(1)
-                        if rst.shape == shape:
-                            detection_tensor.append(rst)
+                        bands = []
+                        rst1 = src.read(1)
+                        rst2 = src.read(2)
+                        rst3 = src.read(3)
+                        rst4 = src.read(4)
+                        if rst1.shape == shape:
+                            bands.append(rst1)
+                            bands.append(rst2)
+                            bands.append(rst3)
+                            bands.append(rst4)
+                            detection_tensor.append(np.asarray(bands, np.float32))
                             
             dtensor = np.asarray(detection_tensor, dtype=np.float32)
             array.append(dtensor)
@@ -47,6 +55,12 @@ def load_tensor(in_file, year_list=None, shape=None):
 def decompose(tensors, years):
     out_array = []
     for tensor in tensors:
+        
+        band1 = tensor[0]
+        band2 = tensor[1]
+        band3 = tensor[2]
+        band4 = tensor[3]
+        
         X = dtensor(np.array(tensor))
         # Only 1 and 2 are valid inputs when 3 imagepip s are used, 1 means 'more' shadow/sun is removed while 2 will keep some
         # you should inspect the results to pick a desired value
@@ -81,10 +95,8 @@ def decompose(tensors, years):
         # Note that that method will result with all input images to be modified, therfore all of them should be used insted of original ones(keeping some hand picked 'cloud free images' in the data set for further ML is not a good idea)
         A = ttm(G, U)
         print(A.shape)
-        for out_tensor in A:
-            out_array.append(out_tensor)
-            
-    return A
+        out_array.append(A)
+    return out_array
 
 def write_rasters(tensors, in_file, out_file, year_list):
     files = glob.glob(f'{in_file}/*.tif')
@@ -101,7 +113,7 @@ def write_rasters(tensors, in_file, out_file, year_list):
                 if not os.path.exists(out_file):
                     os.makedirs(out_file)
 
-                with rasterio.open(f'{out_file}/averaged_tensors_{date}_{count}.tif', "w", **out_meta) as dest:
+                with rasterio.open(f'{out_file}/tucker_tiffs_{date}_{count}.tif', "w", **out_meta) as dest:
                     dest.write(tensor, 1)
                 
                 count += 1
@@ -115,13 +127,20 @@ def write_rasters(tensors, in_file, out_file, year_list):
                     dest.write(tensor, 1)
                 
                 count += 1
-                
+
+def show_image(array):
+    plt.imshow(array)
+    plt.show()
+    plt.close()
+
 if __name__ == "__main__":
     
-    in_file = "/home/rene1337/RSCPH/PlanetTimeseriesTest/output_predictions/20230301-1203_test/rasters"
-    out_file = "/home/rene1337/RSCPH/PlanetTimeseriesTest/multi_years/"
+    in_file = "/home/rene1337/RSCPH/PlanetTimeseriesTest/cleaned_images"
+    out_file = "/home/rene1337/RSCPH/PlanetTimeseriesTest/tucker/"
     years = [str(year) for year in range(2018, 2023, 1)]
     
-    tensors = load_tensor(in_file, years)
+    tensors = load_multiband_tensor(in_file, years)
+    [print(tensor.shape) for tensor in tensors]
+    '''decomposed = decompose(tensors, years)
     
-    decomposed = decompose(tensors, years)
+    write_rasters(decomposed, in_file, out_file, years)'''

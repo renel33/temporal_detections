@@ -205,13 +205,6 @@ def write_rasters(tensors, in_file, out_file, year_list):
                 with rasterio.open(f'{out_file}/averaged_tensors_{date}_{count}.tif', "w", **out_meta) as dest:
                     dest.write(tensor, 1)
                 
-                count += 1
-    else:
-        count = 1
-        for tensor in tensors:
-                if not os.path.exists(out_file):
-                    os.makedirs(out_file)
-
                 with rasterio.open(f'{out_file}/averaged_tensors_{count}.tif', "w", **out_meta) as dest:
                     dest.write(tensor, 1)
                 
