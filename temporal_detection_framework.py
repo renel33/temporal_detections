@@ -269,13 +269,13 @@ if __name__ == "__main__":
     
     absolute_average_tensors = absolute_average(average_tensors, True)
     
-    med_diff = tensor_difference(med_tensors, years)
+    #med_diff = tensor_difference(med_tensors, years)
     #avg_diff = tensor_difference(average_tensors, years)
     abs_avg_diff = tensor_difference(absolute_average_tensors, years)
 
     
-    write_rasters(tensors, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest//", years)
-    write_rasters(med_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/median_diff_years/", [str(year) for year in range(2018, 2022, 1)])
+    #write_rasters(tensors, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest//", years)
+    #write_rasters(med_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/median_diff_years/", [str(year) for year in range(2018, 2022, 1)])
     #write_rasters(avg_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/avg_diff_years/", [str(year) for year in range(2018, 2022, 1)])
     write_rasters(abs_avg_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/abs_avg_diff_years/", [str(year) for year in range(2018, 2022, 1)])
     write_rasters(average_tensors, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/average_thresh_years/", years)
