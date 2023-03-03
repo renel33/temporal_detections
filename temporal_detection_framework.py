@@ -4,13 +4,19 @@ import numpy as np
 import os
 from osgeo import gdal
 import matplotlib.pyplot as plt
+from rasterio.features import shapes
+import geopandas as gp
 
-
-def show_image(array):
-    plt.imshow(array)
-    plt.show()
-    plt.close()
-
+def show_image(array, legend=False):
+    if legend == False:
+        plt.imshow(array)
+        plt.show()
+        plt.close()
+    else:
+        plt.imshow(array)
+        plt.legend()
+        plt.show()
+        plt.close()
 
 def assert_shape(in_file):
     
@@ -211,23 +217,26 @@ def write_rasters(tensors, in_file, out_file, year_list):
                 count += 1
 
 
-def show_tensors(tensors):
+def show_tensors(tensors, legend=False):
     for object in tensors:
         if type(object) == list:
             for tensor in object:
-                show_image(tensor)
+                show_image(tensor, legend=False)
         else:
-            show_image(object)
+            show_image(object, legend=False)
 
 
-def absolute_average(tensors, thresh=False):
+def absolute_average(tensors, thresh=None):
     tensors_out = []
     for tensor in tensors:
         if tensor.shape[0] == 0:
             continue
-        if thresh == True:
-            tensor = threshold_tensor(tensor)
-        tensors_out.append(np.mean(tensor, axis=0))
+        
+        tensor = np.mean(tensor, axis=0)
+        
+        if thresh is not None:
+            tensor = threshold_tensor(tensor, thresh)
+        tensors_out.append(tensor)
     return np.asarray(tensors_out, np.float32)
 
 
@@ -244,39 +253,183 @@ def tensor_difference(tensors, year_list):
         out_tensors.append(diff)
     return np.asarray(out_tensors, np.float32)
 
-def threshold_tensor(tensor):
+
+def threshold_tensor(tensor, thresh=None):
+    if thresh is not None:
+        tensor[tensor < thresh] = 0
     tensor[tensor < 1] = 0
     return tensor
-        
 
+
+def threshold_tensor_to_one(tensor, thresh):
+    tensor[tensor >= thresh] = 1
+    return tensor
+    
+
+def threshold_tensors(tensors, thresh, to_zero = True):
+    if to_zero == True:
+        return [threshold_tensor(tensor, thresh) for tensor in tensors]
+    else:
+        return [threshold_tensor_to_one(tensor, thresh) for tensor in tensors]
+
+
+def equalize_tensors(tensors):
+    no_images = [tensor.shape[0] for tensor in tensors]
+    min_no_images = min(no_images)
+    out_array_lc = [tensor[:min_no_images, :, :] for tensor in tensors]
+    return out_array_lc
+
+
+def polygonize_detections(tensors, raster_transform):
+    mask = None
+    out_array = []
+    for tensor in tensors:
+        results = (
+        {'properties': {'raster_val': v}, 'geometry': s}
+        for i, (s, v) 
+        in enumerate(
+            shapes(tensor, mask=mask, transform=raster_transform)))
+        out_array.append(results)
+    return out_array
+
+def create_geopandas_df(polys, raster_crs, year_list, out_file=None, write=False):
+    list_of_dfs = []
+    for year, poly in zip(year_list, polys):
+        geoms = list(poly)
+        geodf = gp.GeoDataFrame.from_features(geoms)
+        geodf.crs = raster_crs
+        geodf["area"] = geodf["geometry"].area/ 10**6
+        geodf = geodf[geodf["raster_val"] == 1]
+        geodf = geodf[geodf["area"] >= 0.0002]
+        if write == True:
+            geodf.to_file(f"{out_file}/{year}_polygon_detections.shp")
+        list_of_dfs.append(geodf)
+    return list_of_dfs
+
+
+def calculate_detection_metrics(tensors, raster_transform, raster_crs, year_list, out_file, write=True):
+    polys = polygonize_detections(tensors, raster_transform)
+    geodf = create_geopandas_df(polys, raster_crs, year_list, out_file, write=True)
+    
+    for index in range(len(geodf)):
+        if index + 1 == len(geodf):
+            break
+        idf = geodf[index]
+        jdf = geodf[index + 1]
+        iyear = year_list[index]
+        jyear = year_list[index + 1]
+        
+        gdf_joined = gp.overlay(idf, jdf, how='intersection')
+    
+        lenintersect = len(gdf_joined.index)
+        leni = len(idf.index)
+        lenj = len(jdf.index)
+        itrees = leni - lenintersect
+        jtrees = lenj - lenintersect
+        overlap_perc = lenintersect/(leni+lenj)*100
+        
+        print("----------------------------------------------------")
+        print(f"Number of trees detected in {iyear}: ", leni)
+        print("----------------------------------------------------")
+        print(f"Number of trees detected in {jyear}: ", lenj)
+        print("----------------------------------------------------")
+        print("Number of trees overlapping: ", lenintersect)
+        print("----------------------------------------------------")
+        print(f"Number of trees only detected in {iyear}: ", itrees)
+        print("----------------------------------------------------")
+        print(f"Number of trees only detected in {jyear}: ", jtrees)
+        print("----------------------------------------------------")
+        print(f"percentage of overlapping trees between {iyear} and {jyear}: ", overlap_perc)
+        print("----------------------------------------------------")
+        
+        
 if __name__ == "__main__":
+    
+    #define input
     in_file = "/home/rene1337/RSCPH/PlanetTimeseriesTest/output_predictions/20230301-1203_test/rasters"
     out_file = "/home/rene1337/RSCPH/PlanetTimeseriesTest/multi_years/"
     years = [str(year) for year in range(2018, 2023, 1)]
-    
+    files = glob.glob(f'{in_file}/*clip.tif')
+    with rasterio.open(files[0]) as src:
+        raster_transform = src.transform
+        raster_crs = src.crs
+        
+    # run functions
     tensors = load_tensor(in_file, years)
     
-    med_tensors = median_tensor(tensors)
+    eq_tensors = equalize_tensors(tensors)
     
-    average_tensors = average_tensor(tensors, 10, True)
+    abs_avg_tensors = absolute_average(eq_tensors)
     
-    absolute_average_tensors = absolute_average(average_tensors, True)
+    re_thr_tensors = threshold_tensors(abs_avg_tensors, 0.7, to_zero=False)
     
-    #med_diff = tensor_difference(med_tensors, years)
-    #avg_diff = tensor_difference(average_tensors, years)
-    abs_avg_diff = tensor_difference(absolute_average_tensors, years)
+    calculate_detection_metrics(re_thr_tensors, raster_transform, raster_crs, years, out_file, write=False)
+    
+    #polys = polygonize_detections(re_thr_tensors, raster_transform)
+    
+    #geodf = create_geopandas_df(polys, raster_crs, years, out_file, write=True)
+    
+    
+    
+    
+    
+    
+    '''df2018 = geodf[0]
+    df2019 = geodf[1]
+    
+    gdf_joined = gp.overlay(df2018, df2019, how='intersection')
+    
+    lenintersect = len(gdf_joined.index)
+    len2018 = len(df2018.index)
+    len2019 = len(df2019.index)
+    trees2019 = len2019 - lenintersect
+    trees2018 = len2018 - lenintersect
+    overlap_perc = lenintersect/(len2018+len2019)*100
+    
+    
+    print("----------------------------------------------------")
+    print("Number of trees overlapping: ", lenintersect)
+    print("----------------------------------------------------")
+    print("Number of trees only detected in 2018: ", trees2018)
+    print("----------------------------------------------------")
+    print("Number of trees only detected in 2019: ", trees2019)
+    print("----------------------------------------------------")
+    print("percentage of overlapping trees between 2018 and 2019: ", overlap_perc)
+    print("----------------------------------------------------")
+    '''
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    #abs_avg_diff = tensor_difference(abs_avg_tensors, years)
 
+    
+    
+    #show_tensors(abs_avg_diff)
+    #show_tensors(absolute_average_tensors)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     #write_rasters(tensors, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest//", years)
     #write_rasters(med_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/median_diff_years/", [str(year) for year in range(2018, 2022, 1)])
     #write_rasters(avg_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/avg_diff_years/", [str(year) for year in range(2018, 2022, 1)])
-    write_rasters(abs_avg_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/abs_avg_diff_years/", [str(year) for year in range(2018, 2022, 1)])
-    write_rasters(average_tensors, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/average_thresh_years/", years)
-    
-    
-    
-        
-    
+    #write_rasters(abs_avg_diff, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/abs_avg_diff_years/", [str(year) for year in range(2018, 2022, 1)])
+    #write_rasters(average_tensors, in_file, "/home/rene1337/RSCPH/PlanetTimeseriesTest/average_thresh_years/", years)
     #show_tensors(diff)
     #[print(tensor.shape) for tensor in tensors]
     # tensors = tensor_stats(tensors, stats=["max", "mean", "median"], threshold=0.7)

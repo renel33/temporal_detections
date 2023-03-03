@@ -54,12 +54,11 @@ def load_multiband_tensor(in_file, year_list=None, shape=None):
 
 def decompose(tensors, years):
     out_array = []
-    for tensor in tensors:
+    for index in range(len(tensors)):
+        tensori = tensors[index]
+        tensorj = tensors[index + index]
         
-        band1 = tensor[0]
-        band2 = tensor[1]
-        band3 = tensor[2]
-        band4 = tensor[3]
+        
         
         X = dtensor(np.array(tensor))
         # Only 1 and 2 are valid inputs when 3 imagepip s are used, 1 means 'more' shadow/sun is removed while 2 will keep some
